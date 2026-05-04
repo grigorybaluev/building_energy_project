@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+mlruns/
+data/raw/
+data/processed/
+.DS_Store
+*.egg-info/
