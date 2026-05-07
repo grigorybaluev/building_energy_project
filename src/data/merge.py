@@ -6,6 +6,7 @@ import os
 load_dotenv()
 
 PROCESSED = Path(os.getenv("DATA_PROCESSED_DIR", "data/processed"))
+RAW = Path(os.getenv("DATA_RAW_DIR", "data/raw"))
 
 
 def check_date_overlap(energy: pd.DataFrame, weather: pd.DataFrame) -> None:
@@ -13,7 +14,6 @@ def check_date_overlap(energy: pd.DataFrame, weather: pd.DataFrame) -> None:
     w_min, w_max = weather["timestamp"].min(), weather["timestamp"].max()
     print(f"  energy:  {e_min} → {e_max}")
     print(f"  weather: {w_min} → {w_max}")
-
     overlap_start = max(e_min, w_min)
     overlap_end = min(e_max, w_max)
     if overlap_start >= overlap_end:
@@ -21,80 +21,101 @@ def check_date_overlap(energy: pd.DataFrame, weather: pd.DataFrame) -> None:
     print(f"  overlap: {overlap_start} → {overlap_end}")
 
 
-def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_time_features(df: pd.DataFrame) -> None:
+    """Adds time columns in-place."""
     ts = df["timestamp"]
-    df = df.copy()
-    df["hour"] = ts.dt.hour
-    df["day_of_week"] = ts.dt.dayofweek      # 0=Monday, 6=Sunday
-    df["month"] = ts.dt.month
-    df["is_weekend"] = df["day_of_week"].isin([5, 6]).astype(int)
+    df["hour"] = ts.dt.hour.astype("int32")
+    df["day_of_week"] = ts.dt.dayofweek.astype("int32")
+    df["month"] = ts.dt.month.astype("int32")
+    df["is_weekend"] = df["day_of_week"].isin([5, 6]).astype("int8")
     df["is_business_hours"] = (
-        (df["hour"].between(8, 18)) & (~df["is_weekend"].astype(bool))
-    ).astype(int)
-    return df
+        df["hour"].between(8, 18) & ~df["is_weekend"].astype(bool)
+    ).astype("int8")
 
 
 def add_degree_days(df: pd.DataFrame,
                     heating_base: float = 18.0,
-                    cooling_base: float = 18.0) -> pd.DataFrame:
-    df = df.copy()
-    df["hdd"] = (heating_base - df["temp_c"]).clip(lower=0)  # heating degree hours
-    df["cdd"] = (df["temp_c"] - cooling_base).clip(lower=0)  # cooling degree hours
-    return df
+                    cooling_base: float = 18.0) -> None:
+    """Adds HDD/CDD columns in-place."""
+    df["hdd"] = (heating_base - df["temp_c"]).clip(lower=0).astype("float32")
+    df["cdd"] = (df["temp_c"] - cooling_base).clip(lower=0).astype("float32")
 
 
 if __name__ == "__main__":
     print("Loading energy data...")
     energy = pd.read_parquet(PROCESSED / "bdg2_clean.parquet")
+    for col in ("building_id", "meter_type", "quality_flag", "primaryspaceusage", "timezone"):
+        energy[col] = energy[col].astype("category")
+    energy["meter_reading"] = energy["meter_reading"].astype("float32")
     print(f"  {len(energy):,} rows, {energy['building_id'].nunique()} buildings")
 
     print("Loading weather data...")
     weather = pd.read_parquet(PROCESSED / "weather_clean.parquet")
-    print(f"  {len(weather):,} rows")
+    weather["site_id"] = weather["site_id"].astype("category")
+    print(f"  {len(weather):,} rows, {weather['site_id'].nunique()} sites")
+
+    print("Attaching site_id to energy data...")
+    meta = pd.read_csv(RAW / "metadata.csv")[["building_id", "site_id"]].drop_duplicates("building_id")
+    energy = energy.merge(meta, on="building_id", how="left")
+    energy["site_id"] = energy["site_id"].astype("category")
+
+    missing_site = energy["site_id"].isna().sum()
+    if missing_site > 0:
+        print(f"  warning: {missing_site} rows have no site_id — dropping")
+        energy = energy.dropna(subset=["site_id"])
 
     print("Checking date overlap...")
     check_date_overlap(energy, weather)
 
-    print("Merging...")
-    energy = energy.sort_values("timestamp")
-    weather = weather.sort_values("timestamp")
+    print("Merging weather per site...")
+    sites = energy["site_id"].cat.categories
+    frames = []
 
-    merged = pd.merge_asof(
-        energy,
-        weather,
-        on="timestamp",
-        tolerance=pd.Timedelta("1h"),
-        direction="nearest",
-    )
+    for site in sites:
+        e = energy[energy["site_id"] == site].sort_values("timestamp")
+        w = weather[weather["site_id"] == site].sort_values("timestamp")
 
-    join_rate = merged["temp_c"].notna().mean()
-    print(f"  overall weather join rate: {join_rate:.1%}")
-    if join_rate < 0.90:
-        raise ValueError(
-            f"Weather join rate {join_rate:.1%} is too low — check timezone alignment"
-        )
+        if len(w) == 0:
+            print(f"  no weather for site {site} — skipping {e['building_id'].nunique()} buildings")
+            continue
 
-    # per-building join rate — flag any outliers
-    per_building = (
-        merged.groupby("building_id")["temp_c"]
-        .apply(lambda x: x.notna().mean())
-        .sort_values()
-    )
-    bad = per_building[per_building < 0.85]
-    if len(bad) > 0:
-        print(f"  warning: {len(bad)} buildings have <85% weather join rate:")
-        print(bad)
+        merged_site = pd.merge_asof(
+            e, w.rename(columns={"site_id": "_site_id_weather"}),
+            on="timestamp",
+            tolerance=pd.Timedelta("1h"),
+            direction="nearest",
+        ).drop(columns=["_site_id_weather"])
+        frames.append(merged_site)
+        join_rate = merged_site["temp_c"].notna().mean()
+        print(f"  {site}: {e['building_id'].nunique()} buildings, {join_rate:.1%} join rate")
+
+    merged = pd.concat(frames, ignore_index=True)
+    del frames, energy, weather
+
+    overall_join = merged["temp_c"].notna().mean()
+    print(f"\nOverall weather join rate: {overall_join:.1%}")
+    if overall_join < 0.90:
+        raise ValueError(f"Join rate {overall_join:.1%} too low — check site_id mapping")
+
+    site_counts = merged.groupby("building_id", observed=True)["site_id"].nunique()
+    bad_buildings = site_counts[site_counts > 1]
+    if len(bad_buildings) > 0:
+        print(f"  warning: {len(bad_buildings)} buildings still have multiple sites")
+        print(bad_buildings)
+    else:
+        print(f"  all buildings have exactly 1 site")
 
     print("Adding time features...")
-    merged = add_time_features(merged)
+    add_time_features(merged)
 
     print("Adding degree days...")
-    merged = add_degree_days(merged)
+    add_degree_days(merged)
 
     out = PROCESSED / "merged.parquet"
     merged.to_parquet(out, index=False)
 
     print(f"\nSaved {len(merged):,} rows → {out}")
+    print(f"Buildings: {merged['building_id'].nunique()}")
     print(f"Columns: {merged.columns.tolist()}")
     print(f"\nSample row:")
     print(merged.iloc[0])
