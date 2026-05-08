@@ -97,14 +97,20 @@ Time-based, never random — avoids data leakage:
 - **Test:** 2017-09-30 → 2017-12-31 (held out, touched once at evaluation)
 
 ## Current model results (test set, Oct–Dec 2017)
-| Model             | RMSE  | MAE   | R²     | MAPE  |
-|-------------------|-------|-------|--------|-------|
-| Linear Regression | 85.41 | 19.21 | 0.9274 | —     |
-| Random Forest     | 67.05 | 7.88  | 0.9552 | —     |
-| XGBoost           | 70.38 | 9.90  | 0.9507 | 7.18% |
+| Model             | RMSE   | MAE   | R²     | MAPE   | Task                  |
+|-------------------|--------|-------|--------|--------|-----------------------|
+| Linear Regression | 85.41  | 19.21 | 0.9274 | —      | 1-step ahead          |
+| Random Forest     | 67.05  | 7.88  | 0.9552 | —      | 1-step ahead          |
+| XGBoost           | 70.38  | 9.90  | 0.9507 | 7.18%  | 1-step ahead          |
+| LSTM              | 101.35 | 20.20 | —      | 12.45% | 24-step ahead (multi) |
 
 MLflow experiment: `building-energy-baseline`
-XGBoost best iteration: 1153 trees, val RMSE 48.45
+XGBoost best iteration: 1126 trees, val RMSE 48.58
+LSTM: 2-layer (hidden=128), 30 epochs, stride=24, SEQ_LEN=168, HORIZON=24
+- Val loss still dropping at epoch 30 — not fully converged
+- RMSE gap vs XGBoost is partially task-driven (multi-step is harder)
+- XGBoost's explicit lag features give it a structural advantage on tabular data
+- Best checkpoint: `data/lstm_best.pt`
 
 ## MLflow notes
 - Tracking URI: `mlruns/` (local)
@@ -126,8 +132,8 @@ XGBoost best iteration: 1153 trees, val RMSE 48.45
   use `dt.strftime("%Y-%m")` instead
 
 ## Next steps
-- [ ] Phase 3: PyTorch LSTM for multi-step forecasting
-- [ ] Phase 3: Compare LSTM vs XGBoost on same test set
+- [x] Phase 3: PyTorch LSTM for multi-step forecasting
+- [x] Phase 3: Compare LSTM vs XGBoost on same test set
 - [ ] Phase 4: Rule-based vs ML HVAC control simulation
 - [ ] Phase 5: SHAP analysis of architectural features
 - [ ] Phase 6: FastAPI endpoint + Streamlit dashboard + Docker
