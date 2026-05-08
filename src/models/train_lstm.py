@@ -32,8 +32,9 @@ PROCESSED = Path(os.getenv("DATA_PROCESSED_DIR", "data/processed"))
 
 SEQ_LEN = 168       # one week of hourly history as input
 HORIZON = 24        # predict next 24 hours
+STRIDE = 24         # sample one window per day — consecutive hourly windows are ~96% correlated
 BATCH_SIZE = 256
-EPOCHS = 30
+EPOCHS = 5          # pilot: verify loss curve before overnight full run
 LR = 1e-3
 HIDDEN_SIZE = 128
 NUM_LAYERS = 2
@@ -73,14 +74,15 @@ class EnergyWindowDataset(Dataset):
 
         self.features = scaler.transform(df[FEATURE_COLS].values.astype(np.float32))
         self.targets  = df[TARGET].values.astype(np.float32)
-        self.n        = max(0, len(df) - SEQ_LEN - HORIZON + 1)
+        self.n        = max(0, (len(df) - SEQ_LEN - HORIZON) // STRIDE + 1)
 
     def __len__(self) -> int:
         return self.n
 
     def __getitem__(self, idx: int):
-        x = torch.tensor(self.features[idx : idx + SEQ_LEN])
-        y = torch.tensor(self.targets[idx + SEQ_LEN : idx + SEQ_LEN + HORIZON])
+        start = idx * STRIDE
+        x = torch.tensor(self.features[start : start + SEQ_LEN])
+        y = torch.tensor(self.targets[start + SEQ_LEN : start + SEQ_LEN + HORIZON])
         return x, y
 
 
