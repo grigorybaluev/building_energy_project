@@ -45,8 +45,16 @@ building-energy-ml/
 │   │   └── merge.py            # joins energy + weather per site_id, adds time/degree features
 │   ├── features/
 │   │   └── build_features.py   # lag features, rolling stats, building metadata encoding
-│   └── models/
-│       └── train_baseline.py   # linear regression, random forest, xgboost with MLflow
+│   ├── models/
+│   │   ├── train_baseline.py   # linear regression, random forest, xgboost with MLflow
+│   │   └── train_lstm.py       # PyTorch LSTM, 24h multi-step (phase 3)
+│   ├── simulation/
+│   │   └── hvac_sim.py         # rule-based vs weather-adaptive HVAC policies (phase 4)
+│   ├── visualization/
+│   │   └── plot_results.py     # simulation + XGBoost figures → reports/figures/ (phase 4)
+│   └── analysis/
+│       └── shap_analysis.py    # TreeSHAP + per-building error vs building traits (phase 5)
+├── reports/figures/            # generated PNGs (sim_*, xgb_*, shap_*, arch_*)
 ├── mlruns/                     # MLflow tracking data, gitignored
 ├── .env                        # local env vars, gitignored
 ├── .env.example                # committed template
@@ -112,12 +120,54 @@ LSTM: 2-layer (hidden=128), 30 epochs, stride=24, SEQ_LEN=168, HORIZON=24
 - XGBoost's explicit lag features give it a structural advantage on tabular data
 - Best checkpoint: `data/lstm_best.pt`
 
+## Phase 5 — SHAP & architectural findings (test set, Oct–Dec 2017)
+Script `src/analysis/shap_analysis.py`. SHAP via XGBoost native TreeSHAP
+(`pred_contribs`) on a 50k-row test sample; per-building error via point predictions
+on all 435 buildings. Outputs: `reports/figures/{shap_*,arch_*}.png`,
+`data/processed/building_error_analysis.parquet`, MLflow run `shap_architectural_analysis`.
+
+"Hardness" metric is **CV(RMSE) = RMSE / mean load**, not raw RMSE — raw RMSE just
+tracks meter size, which would make "big buildings are harder" a trivial magnitude artifact.
+
+Headline numbers:
+- Top feature overall: `load_lag_1h` (mean-abs SHAP ≈ 137 kWh) — model is ~autoregressive.
+- **Architectural features = only 1.7%** of total attribution (size + age + use type).
+- Top architectural feature: `log_sqm` (mean-abs SHAP 2.74 kWh).
+- Size vs CV(RMSE): Spearman ρ = **−0.23** (p=1.6e-6) — significant.
+- Age vs CV(RMSE): ρ = +0.09 (p=0.33, n=131 real year-built) — null.
+- Median CV(RMSE) / MAPE: Education 0.091 / 5.3%, Office 0.099 / 6.6%.
+
+Domain reasoning ("characteristic X is harder because Y"):
+- **Smaller buildings are harder.** A large building's meter sums many independent
+  zones/occupants, so idiosyncratic swings average out (law of large numbers) into a
+  smooth, highly autocorrelated curve the lags predict almost perfectly. Small buildings
+  are driven by a few discrete events (one RTU cycling, one tenant) → spikier, less
+  self-similar hour-to-hour → worse *relative* error. Size changes predictability, not
+  what drives the prediction.
+- **Offices modestly harder than Education.** Schools/universities run rigid academic +
+  bell schedules (strong daily/weekly periodicity the 24h/168h lags capture); offices
+  carry more aperiodic plug-load and variable occupancy.
+- **Age: no significant effect**, and `yearbuilt` is missing for 70% of buildings.
+  Likely underpowered and confounded — `yearbuilt` ignores retrofits, so a renovated
+  1960s building behaves new. Reported as a null, not spun. `numberoffloors` (4% coverage)
+  was too sparse to use.
+- **Weather degree-days (`hdd`/`cdd`) have near-zero SHAP** — the recent-load lags already
+  encode the weather-driven component, so explicit degree-days add little once lags exist.
+
+Key reframing: architectural features barely move the *point forecast* (1.7%), but they
+predict *which buildings the model struggles with* (size→error is significant). The
+architectural value is in error stratification, not the forecast itself — actionable for
+control: trust forecasts on large, regular-schedule buildings; widen control margins on
+small / office-type ones.
+
 ## MLflow notes
 - Tracking URI: `mlruns/` (local)
 - Experiment: `building-energy-baseline`
 - XGBoost model saved as `xgboost_model.json` via `model.get_booster().save_model()`
   (not `mlflow.xgboost.log_model` — broken with current xgboost/mlflow versions)
 - sklearn models logged with `mlflow.sklearn.log_model`
+- Phase 5 run `shap_architectural_analysis` logs per-feature mean-abs SHAP, the
+  architectural SHAP share, size/age error correlations, and the figures as artifacts
 
 ## Known issues and workarounds
 - `mlflow.xgboost.log_model` throws `TypeError: _estimator_type undefined` —
@@ -130,12 +180,17 @@ LSTM: 2-layer (hidden=128), 30 epochs, stride=24, SEQ_LEN=168, HORIZON=24
 - Pandas `pd.Timedelta("1H")` raises FutureWarning — use `"1h"` lowercase
 - `to_period("M")` fails on timezone-aware timestamps —
   use `dt.strftime("%Y-%m")` instead
+- `shap` package won't install: shap ≥0.52 requires numpy≥2 (project pins numpy<2),
+  and older shap pulls `numba`→`llvmlite`, which has no wheel for this macOS/Python and
+  fails to compile. Workaround: XGBoost native TreeSHAP
+  (`booster.predict(dm, pred_contribs=True)`) — same TreeSHAP algorithm, zero extra deps.
+  Booster json doesn't store feature names, so set `booster.feature_names = FEATURE_COLS`.
 
 ## Next steps
 - [x] Phase 3: PyTorch LSTM for multi-step forecasting
 - [x] Phase 3: Compare LSTM vs XGBoost on same test set
-- [ ] Phase 4: Rule-based vs ML HVAC control simulation
-- [ ] Phase 5: SHAP analysis of architectural features
+- [x] Phase 4: Rule-based vs ML HVAC control simulation
+- [x] Phase 5: SHAP analysis of architectural features
 - [ ] Phase 6: FastAPI endpoint + Streamlit dashboard + Docker
 
 ## Architecture domain context
