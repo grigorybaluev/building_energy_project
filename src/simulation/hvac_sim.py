@@ -11,7 +11,7 @@ Compares two scheduling policies on the test set (Oct–Dec 2017):
                     exceeds the building's monthly median — only pre-condition
                     when weather actually demands it.
 
-The "ML" label is justified because in production BrainBox AI uses a
+The "ML" label is justified because production autonomous-HVAC systems use a
 forecasted-weather + building thermal model pipeline to make the same
 pre-conditioning decision. Here we use actual HDD/CDD as a clean proxy
 that isolates the scheduling logic from forecast accuracy.

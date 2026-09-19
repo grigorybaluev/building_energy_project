@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "building-energy"
 version = "0.1.0"
-description = ""
+description = "Hourly building electricity forecasting, HVAC control simulation and SHAP-based architectural error analysis on the Building Data Genome Project 2 dataset"
 package-mode = false
 authors = ["grigorybaluev <gr.baluev@gmail.com>"]
 

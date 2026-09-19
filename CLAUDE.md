@@ -1,17 +1,17 @@
 # CLAUDE.md — Building Energy ML Project
 
 ## Project overview
-Building energy prediction + HVAC control simulation targeting a co-op application
-at BrainBox AI. Three-layer architecture: (1) energy load prediction, (2) rule-based
+Building energy prediction + HVAC control simulation — a portfolio project.
+Three-layer architecture: (1) energy load prediction, (2) rule-based
 vs ML control policy comparison, (3) architectural feature analysis.
 
 ## Stack
 - Python 3.12, Poetry for dependency management
 - pandas, numpy, scikit-learn, xgboost, pytorch (phase 3)
 - MLflow for experiment tracking
-- FastAPI for serving (phase 4)
-- Streamlit for dashboard (phase 4)
-- Docker for containerization (phase 4)
+- FastAPI for serving (phase 6)
+- Streamlit for dashboard (phase 6)
+- Docker for containerization (phase 6)
 
 ## Commands
 ```bash
