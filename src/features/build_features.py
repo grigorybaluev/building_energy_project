@@ -118,7 +118,7 @@ if __name__ == "__main__":
     print(f"\nFinal shape: {df.shape}")
     print(f"Buildings: {df['building_id'].nunique()}")
     print(f"Date range: {df['timestamp'].min()} → {df['timestamp'].max()}")
-    print(f"\nNull counts per feature:")
+    print("\nNull counts per feature:")
     nulls = df.isnull().sum()
     print(nulls[nulls > 0])
 

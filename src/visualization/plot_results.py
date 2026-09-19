@@ -86,14 +86,14 @@ def plot_sim_summary(rb: pd.DataFrame, wa: pd.DataFrame) -> None:
     width = 0.35
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    bars_rb = ax.bar(x - width / 2,
-                     [v[0] for v in metrics.values()],
-                     width, label="Rule-based",
-                     color=PALETTE["rule_based"], alpha=0.9)
-    bars_wa = ax.bar(x + width / 2,
-                     [v[1] for v in metrics.values()],
-                     width, label="Weather-adaptive (ML)",
-                     color=PALETTE["weather_adaptive"], alpha=0.9)
+    ax.bar(x - width / 2,
+           [v[0] for v in metrics.values()],
+           width, label="Rule-based",
+           color=PALETTE["rule_based"], alpha=0.9)
+    ax.bar(x + width / 2,
+           [v[1] for v in metrics.values()],
+           width, label="Weather-adaptive (ML)",
+           color=PALETTE["weather_adaptive"], alpha=0.9)
 
     # annotate savings
     for i, (rb_val, wa_val) in enumerate([v for v in metrics.values()]):

@@ -103,7 +103,7 @@ if __name__ == "__main__":
         print(f"  warning: {len(bad_buildings)} buildings still have multiple sites")
         print(bad_buildings)
     else:
-        print(f"  all buildings have exactly 1 site")
+        print("  all buildings have exactly 1 site")
 
     print("Adding time features...")
     add_time_features(merged)
@@ -117,5 +117,5 @@ if __name__ == "__main__":
     print(f"\nSaved {len(merged):,} rows → {out}")
     print(f"Buildings: {merged['building_id'].nunique()}")
     print(f"Columns: {merged.columns.tolist()}")
-    print(f"\nSample row:")
+    print("\nSample row:")
     print(merged.iloc[0])
